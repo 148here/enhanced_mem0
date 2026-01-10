@@ -1,0 +1,177 @@
+todo:
+; 0.先本地数据库跑起来
+1.写入过程包括“重要性/记忆频率”
+记忆过程调整这个“重要性/记忆频率”
+; 2.提升时间感知能力，显式地把“时间”标记出来，调整search
+3.多粒度记忆，录入的时候标记出每条“原子事实”，“状态事实”
+; 4. 裁判模型+检索性反思（扩大top-k）
+; 5, neo4j.exceptions.CypherSyntaxError: {code: Neo.ClientError.Statement.SyntaxError} {message: Invalid input ']': expected a node label/relationship type name, '$', '%' or '(' (line 3, column 17 (offset: 80))
+; "            -[r:]->"
+;                  ^}
+;                  健壮性加强
+; 6. 加一个总的tqdm 不然不知道录入多少记忆
+; role="user"改掉
+; 工作
+; add
+; search:
+; 先走一遍
+
+
+commands
+cd mem0/evaluation
+conda activate mem0_311
+
+
+docker run -d --name mem0-neo4j -p 7474:7474 -p 7687:7687 -e NEO4J_AUTH=neo4j/password neo4j:5
+  用户名：neo4j
+  密码：password
+
+结束进程：
+taskkill /F /IM python.exe
+
+
+
+
+进入评测目录：
+  cd evaluation
+
+写入记忆（mem0-plus：graph）：
+  python run_experiments.py --technique_type mem0 --method add --is_graph --max_conversations 2 --debug
+
+检索+回答（mem0-plus：graph）：
+python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 24 --max_conversations 2 --sample_rate 5 --debug
+python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 24 --max_conversations 2 --sample_rate 5 --debug --num_candidates 3 --max_expand_rounds 2
+python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 24 --max_conversations 2 --sample_rate 1 --debug --num_candidates 3 --max_expand_rounds 2
+
+评价
+python evals.py --input_file D:\Learning\PR\code\mem0\evaluation\results\mem0_results_top_24_filter_False_graph_True.json --output_file results/evaluation_metrics.json
+
+
+
+
+
+
+; ===============================
+; 本地评测（evaluation/）+ 本地图数据库（is_graph=mem0-plus）
+; ===============================
+
+; 目标：让 `mem0/evaluation` 的 mem0/mem0-plus 评测 **不再使用官方托管 API（MemoryClient）**，
+; 而是使用开源本地实现 `mem0.Memory.from_config()`（本地向量库 + 可选图数据库）。
+
+; -------------------------------
+; 1) 需要修改的代码位置（已改）
+; -------------------------------
+; - `mem0/evaluation/src/memzero/add.py`
+;   - 原来：`MemoryClient.add(... version="v2", enable_graph=...)`
+;   - 现在：本地 `Memory.add(...)`（graph 是否启用由 graph_store 配置决定）
+; - `mem0/evaluation/src/memzero/search.py`
+;   - 原来：`MemoryClient.search(... top_k=..., filter_memories=..., enable_graph=...)`
+;   - 现在：本地 `Memory.search(... limit=...)`
+
+; ⚠️ 逻辑差异警告（你后面改“重要性/频率/时间感知”时要记住）：
+; - 托管 API 用 `top_k`；本地 API 用 `limit`
+;   - 在评测脚本里我们保持参数名 `top_k` 不变，但实际调用会映射为 `limit=self.top_k`
+;   - `limit` 的含义：本地检索返回的最多结果条数（等价于 top_k）
+; - 托管 API 的 `filter_memories`：本地 `Memory.search()` **没有这个参数**
+;   - 所以 `--filter_memories` 在本地 mem0 模式下暂时不会生效（只是为了兼容 run_experiments.py）
+;   - 如果你需要等价行为，需要你自己实现过滤逻辑（去重/阈值/时间衰减/重要性加权等）
+; - Graph relations 字段：
+;   - 托管 relations 常用 `target`
+;   - 本地 graph（Neo4j/Memgraph/Kuzu）常用 `destination`
+;   - 评测里已做兼容映射：`target = relation.get("target", relation.get("destination"))`
+
+; -------------------------------
+; 2) 安装依赖（Windows + conda 环境）
+; -------------------------------
+
+; 前提：你已经 `conda activate mem0`
+
+; （A）安装本仓库的 mem0 包（带 graph + vector store 额外依赖）
+; 在仓库根目录运行：
+
+;   pip install -e .\\mem0[graph,vector_stores]
+
+; 说明：
+; - `graph` extra：包含 Neo4j/Memgraph/Kuzu + `rank-bm25` 等依赖
+; - `vector_stores` extra：包含 FAISS/Chroma 等本地向量库依赖（默认我们用 FAISS）
+
+; （B）安装 evaluation 依赖（评测脚本本身用到）
+
+;   pip install python-dotenv tqdm jinja2 langmem zep_cloud
+
+; （C）OpenAI SDK（如果你走 OpenAI 做抽取/embedding/回答）
+; mem0 本体依赖里已有 openai，但如果你的环境缺失可显式装：
+
+;   pip install "openai>=1.90.0"
+
+; -------------------------------
+; 3) is_graph（Neo4j）安装/启动（推荐 Docker）
+; -------------------------------
+
+; ⚠️ 重要：你在 `make run-mem0-plus-*` / `--is_graph` 时，本地代码会强制要求下面环境变量存在；
+; 没配会直接抛 ValueError（避免你以为开了 graph 其实没连上）。
+
+; 推荐方式：Docker Desktop（Windows）
+
+; 1）安装 Docker Desktop（自行安装并确保能运行）
+; 2）启动 Neo4j 容器（示例命令）：
+
+;   docker run -d --name mem0-neo4j ^
+;     -p 7474:7474 -p 7687:7687 ^
+;     -e NEO4J_AUTH=neo4j/password ^
+;     neo4j:5
+
+; 3）浏览器打开 Neo4j Browser（可选）：http://localhost:7474
+;    用户名：neo4j
+;    密码：password
+
+; -------------------------------
+; 4) .env 必要配置（evaluation 用）
+; -------------------------------
+
+; 在 `mem0/evaluation/.env`（或项目根 .env）添加：
+
+;   # 用于“记忆抽取/embedding/回答问题”的 OpenAI key
+;   OPENAI_API_KEY=你的key
+
+;   # 回答问题用的模型（evaluation/src/memzero/search.py 里 OpenAI() 会用它生成 response）
+;   MODEL=gpt-4o-mini
+
+;   # 生成 embedding 用的模型
+;   EMBEDDING_MODEL=text-embedding-3-small
+
+;   # 本地向量库（默认 faiss）
+;   MEM0_VECTOR_STORE_PROVIDER=faiss
+;   MEM0_VECTOR_STORE_PATH=results/faiss
+;   MEM0_COLLECTION=locomo_eval
+;   MEM0_EMBEDDING_DIMS=1536
+
+;   # 记忆抽取/更新用的 LLM（可以和 MODEL 不同）
+;   MEM0_MEMORY_LLM_MODEL=gpt-4o-mini
+
+;   # is_graph=True 时必须的 Neo4j 配置
+;   NEO4J_URL=neo4j://localhost:7687
+;   NEO4J_USERNAME=neo4j
+;   NEO4J_PASSWORD=password
+;   # 可选
+;   # NEO4J_DATABASE=neo4j
+
+; -------------------------------
+; 5) 运行命令（evaluation）
+; -------------------------------
+
+; 进入评测目录：
+;   cd mem0\\evaluation
+
+; 写入记忆（mem0）：
+;   python run_experiments.py --technique_type mem0 --method add
+
+; 检索+回答（mem0）：
+;   python run_experiments.py --technique_type mem0 --method search --output_folder results/ --top_k 30
+
+; 写入记忆（mem0-plus：graph）：
+;   python run_experiments.py --technique_type mem0 --method add --is_graph
+
+; 检索+回答（mem0-plus：graph）：
+;   python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 30
+
