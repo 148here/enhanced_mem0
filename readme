@@ -47,6 +47,11 @@ python run_experiments.py --technique_type mem0 --method search --is_graph --out
 python evals.py --input_file D:\Learning\PR\code\mem0\evaluation\results\mem0_results_top_24_filter_False_graph_True.json --output_file results/evaluation_metrics.json
 
 
+WebUI
+
+set NO_PROXY=127.0.0.1,localhost,::1
+set no_proxy=%NO_PROXY%
+python chat_webui.py
 
 
 
@@ -174,4 +179,228 @@ python evals.py --input_file D:\Learning\PR\code\mem0\evaluation\results\mem0_re
 
 ; 检索+回答（mem0-plus：graph）：
 ;   python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 30
+
+; ===============================
+; 在线对话（多聊天窗口 + 共享用户记忆库，FAISS）
+; ===============================
+;
+; 目标：
+; - 像“正常 LLM”一样在线聊天
+; - 支持多个聊天窗口（窗口之间对话历史不共享）
+; - 只有一个用户（USER_ID 固定在 config.py / env）
+; - 所有窗口共享同一个“用户记忆数据库”（FAISS）
+; - 同一个窗口内：默认只让模型看到最近 3 轮历史（1轮=用户+助手，可配置）
+; - WebUI 可展示：
+;   1) memory search 结果
+;   2) 发送给对话LLM的“完整拼接内容”（prompt）
+;   3) add memory 时“记忆提取LLM”的原始返回（raw JSON）+ 解析后的 facts
+;
+; -------------------------------
+; 0) 相关文件（仓库根目录）
+; -------------------------------
+; - config.py             : 在线对话配置（路径、top_k、最大可见轮数等）
+; - memory_system.py      : mem0 本地 Memory.from_config + FAISS，且捕获“事实提取LLM”raw输出
+; - chat_manager.py       : 多窗口 history + 共享 memory 的对话管理
+; - chat_webui.py         : Gradio WebUI（窗口切换 + 状态 + prompt/facts 展示）
+; - requirements_chat.txt : WebUI 最小依赖
+;
+; -------------------------------
+; 1) .env 配置（与 evaluation 的“理解/命名”保持一致）
+; -------------------------------
+;
+; 注意：这些脚本会读取“当前工作目录（仓库根目录）”下的 `.env`。
+;
+; 必需：
+;   OPENAI_API_KEY=你的key
+;
+; 建议（与 evaluation 一致的命名）：
+;   MODEL=gpt-4o-mini
+;   EMBEDDING_MODEL=text-embedding-3-small
+;   MEM0_VECTOR_STORE_PROVIDER=faiss
+;   MEM0_EMBEDDING_DIMS=1536
+;
+; 可选（与 evaluation 一致）：
+;   MEM0_MEMORY_LLM_MODEL=gpt-4o-mini
+;   MEM0_MEMORY_LLM_PROVIDER=openai
+;
+; 可选（在线对话系统自定义开关，默认值见 config.py）：
+;   USER_ID=default_user
+;   MEM0_VECTOR_STORE_PATH=chat_memory/faiss       ; 记忆库路径（FAISS 文件会落在此目录）
+;   MEM0_COLLECTION=online_chat                    ; collection 名
+;   ONLINE_CHAT_TOP_K=10                           ; memory search top_k
+;   ONLINE_CHAT_MAX_HISTORY_TURNS=3                ; 最近 N 轮历史可见
+;   ONLINE_CHAT_WEBUI_HOST=127.0.0.1
+;   ONLINE_CHAT_WEBUI_PORT=7860
+;
+; -------------------------------
+; 2) 安装依赖
+; -------------------------------
+; 前提：你已经安装本仓库 mem0（含 vector store 依赖）
+;   pip install -e .\\mem0[vector_stores]
+;
+; 安装 WebUI 最小依赖：
+;   pip install -r requirements_chat.txt
+;
+; -------------------------------
+; 3) 启动 WebUI
+; -------------------------------
+; 在仓库根目录运行：
+;   python chat_webui.py
+;
+; 访问：
+;   http://127.0.0.1:7860
+;
+; -------------------------------
+; 4) WebUI 交互说明
+; -------------------------------
+; - 多窗口：
+;   - “新建窗口”：创建一个 window_xxx
+;   - “聊天窗口下拉框”：切换窗口
+;   - 切换窗口后：聊天历史会切换，但用户记忆仍是共享的（同一 USER_ID）
+;
+; - 每次发送会展示：
+;   - “当前状态”：window_id / history_turns / top_k / 上次检索命中条数 / add 成功与否等
+;   - “对话LLM：完整拼接内容”：System + Memories + Recent History + User Input
+;   - “add memory：记忆提取LLM原始返回”：
+;       - fact_extraction_raw：LLM 返回的原始 JSON（{facts:[...] }）
+;       - parsed_facts：从 raw JSON 解析出的 facts
+;       - mem0.add() result：mem0 最终写入/更新/删除的 memory 结果
+;
+; -------------------------------
+; 5) 设计要点（与 evaluation 对齐）
+; -------------------------------
+; - 本地 mem0：使用 `mem0.Memory.from_config()`（不走托管 MemoryClient）
+; - 本地向量库：FAISS（落盘文件：.faiss + .pkl）
+; - 参数命名：
+;   - evaluation 里“top_k”在本地 API 里实际是 search(limit=top_k)
+;   - 本在线对话系统同理：search(limit=TOP_K)
+; - 记忆提取：
+;   - 使用 mem0 内置 `USER_MEMORY_EXTRACTION_PROMPT`
+;   - 并通过包装 `mem0.llm.generate_response` 捕获 fact extraction 的 raw 返回，供展示
+;
+; -------------------------------
+; 6) 修改历史
+; -------------------------------
+; 2024-XX-XX: 初始创建在线对话系统（多窗口+共享记忆）
+; 2024-XX-XX: 迁移 evaluation 中的"裁判模型+动态topk"机制
+;   - 添加文件：无新增，修改现有文件
+;   - 修改文件：
+;     - prompt.py: 添加 ANSWER_PROMPT 和 JUDGE_PROMPT（适配单用户版本）
+;     - config.py: 添加裁判模型相关配置（ENABLE_JUDGE_AND_DYNAMIC_TOPK, NUM_CANDIDATES, MAX_EXPAND_ROUNDS, EXPAND_STEP, CANDIDATE_TEMPERATURE）
+;     - requirements_chat.txt: 添加 jinja2>=3.0.0 依赖
+;     - chat_manager.py: 
+;       - 添加导入 re, jinja2.Template, ANSWER_PROMPT, JUDGE_PROMPT
+;       - 实现辅助方法：_normalize_one_line, _format_candidates_block, _generate_candidates, _judge_pick
+;       - 实现 prompt 构建：_build_answer_prompt, _build_judge_prompt
+;       - 修改 send_message 方法支持 enable_judge_and_dynamic_topk 参数
+;       - 拆分为 _send_message_direct（原有流程）和 _send_message_with_judge（新流程）
+;       - 实现多轮检索+生成候选+裁判选择的完整流程
+;     - chat_webui.py:
+;       - 更新 _status_markdown 显示裁判模型相关状态
+;       - 添加 Checkbox 开关组件（启用裁判模型+动态topk）
+;       - 添加裁判模型调试信息展示区域（candidates, judge_raw）
+;       - 修改 on_send 函数接收 enable_judge 参数并传递给 ChatManager
+;       - 更新所有事件绑定的输入输出参数
+;   - 功能说明：
+;     - 默认关闭（ENABLE_JUDGE_AND_DYNAMIC_TOPK=false），保持向后兼容
+;     - 启用后会在多轮中动态扩展 top_k（初始 TOP_K，每轮增加 EXPAND_STEP）
+;     - 每轮生成 NUM_CANDIDATES 个候选答案（temperature=CANDIDATE_TEMPERATURE）
+;     - 裁判模型评估候选答案，返回 1..NUM_CANDIDATES（选择最佳）或 0（扩大检索）
+;     - 最多进行 MAX_EXPAND_ROUNDS + 1 轮
+;     - 如果所有轮次都返回 0，回退到第一轮的第一个候选答案
+;     - WebUI 中可通过 Checkbox 实时控制是否启用
+;   - 性能考虑：
+;     - 启用后会显著增加 LLM 调用次数和延迟
+;     - 建议根据实际需求和成本权衡是否启用
+;   - 调试信息：
+;     - 状态显示增加：num_candidates, chosen_pick, chosen_round, used_top_k, answer_time_s, judge_time_s
+;     - 新增调试区域：candidates（所有候选答案），judge_raw（裁判模型原始输出）
+;
+; 2026-01-XX: 实现动态重要性和记忆过期管理系统
+;   - 核心功能：
+;     1. 动态重要性评分：LLM 在提取 facts 时为每个 fact 评分（0-5），归一化存储为 0-1
+;     2. 基于重要性的搜索排序：enhanced_score = original_score + weight * dynamic_importance
+;     3. 自动衰减机制：每 N 次 add 后对所有活跃记忆应用衰减公式
+;     4. 记忆复活机制：search 命中的记忆被标记为活跃并增加重要性
+;     5. 快速搜索：只搜索 is_expired=false 的记忆（裁判模式强制全局搜索）
+;   
+;   - 修改文件：
+;     - config.py: 添加完整的动态重要性和衰减配置参数
+;       * ENABLE_DYNAMIC_IMPORTANCE: 启用动态重要性排序（默认 false）
+;       * DYNAMIC_IMPORTANCE_WEIGHT: 重要性权重系数（默认 0.1）
+;       * DECAY_CHECK_INTERVAL: 衰减检查间隔（默认 5 次 add）
+;       * DECAY_MULTIPLIER, DECAY_OFFSET, DECAY_THRESHOLD: 衰减公式参数
+;       * REVIVE_MULTIPLIER, REVIVE_OFFSET, REVIVE_MAX: 复活公式参数
+;       * ENABLE_FAST_SEARCH: 启用快速搜索（默认 false）
+;     
+;     - prompt.py: 新增 USER_MEMORY_EXTRACTION_WITH_IMPORTANCE_PROMPT
+;       * 扩展原有 prompt，要求 LLM 为每个 fact 评估重要性（0-5）
+;       * 返回格式：{"facts": [{"content": "...", "importance": 3}, ...]}
+;       * 包含详细的评分指南和示例
+;     
+;     - memory_system.py: 核心实现
+;       * 添加状态管理：add_counter, enable_importance, enable_fast_search, last_decay_time
+;       * 根据配置选择使用标准或带重要性的 prompt
+;       * 实现 _parse_facts_with_importance(): 解析带重要性的 facts 并归一化
+;       * 修改 add_turn(): 支持重要性评分，增加计数器，触发衰减检查
+;       * 实现 _trigger_decay(): 每 N 次 add 后应用衰减公式到所有活跃记忆
+;       * 实现 revive_memories(): 标记使用过的记忆为活跃并增加重要性
+;       * 增强 search(): 支持 use_fast_search 和 enable_dynamic_importance 参数
+;         - 快速搜索：过滤 is_expired=true 的记忆
+;         - 动态重要性：计算 enhanced_score 并重排序
+;         - 为旧记忆自动添加默认 metadata（向后兼容）
+;     
+;     - chat_manager.py: 集成新功能
+;       * 修改 send_message(): 接收 enable_dynamic_importance 和 enable_fast_search 参数
+;       * 更新 _send_message_direct(): 传递参数给 memory.search()，调用 revive_memories()
+;       * 更新 _send_message_with_judge(): 强制使用全局搜索（use_fast_search=False）
+;       * 状态返回增加：dynamic_importance_enabled, fast_search_enabled, revived_memories, next_decay_in
+;     
+;     - chat_webui.py: WebUI 控制和展示
+;       * 添加两个新的 Checkbox 控件：
+;         - Enable Dynamic Importance: 启用动态重要性排序
+;         - Enable Fast Search: 启用快速搜索（只搜索活跃记忆）
+;       * 更新 _status_markdown(): 新增"动态重要性与记忆衰减状态"区域
+;         - 显示：dynamic_importance_enabled, fast_search_enabled, revived_memories, next_decay_in
+;       * 修改 on_send(): 接收并传递 enable_importance 和 enable_fast_search 参数
+;       * 更新所有事件绑定以包含新的控件
+;   
+;   - 技术实现细节：
+;     * Metadata 格式：
+;       - dynamic_importance: 0-1 的归一化重要性值
+;       - original_importance: 0-5 的原始评分（供调试）
+;       - is_expired: 布尔值，标记记忆是否过期
+;     * 衰减公式：new_importance = (importance * 0.99) - 0.002 (if importance > 0)
+;     * 复活公式：new_importance = min((importance + 0.002) * 1.01, 1.0)
+;     * 增强分数：enhanced_score = faiss_score + 0.1 * dynamic_importance
+;     * FAISS 限制：不支持直接更新 metadata，采用 search 时动态处理的策略
+;   
+;   - 使用说明：
+;     * 默认情况下所有功能都是关闭的（向后兼容）
+;     * 通过 .env 文件配置默认行为：
+;       - ONLINE_CHAT_ENABLE_DYNAMIC_IMPORTANCE=true
+;       - ONLINE_CHAT_ENABLE_FAST_SEARCH=true
+;     * WebUI 中可以实时切换开关（不需要重启）
+;     * 裁判模型启用时会强制使用全局搜索（覆盖快速搜索设置）
+;     * 建议先测试单个功能，再组合使用
+;   
+;   - 配置参数说明：
+;     * DYNAMIC_IMPORTANCE_WEIGHT (0.1): 重要性权重，值越大重要性影响越大
+;     * DECAY_CHECK_INTERVAL (5): 每 N 次 add 触发一次衰减
+;     * DECAY_MULTIPLIER (0.99): 衰减乘数，值越小衰减越快
+;     * DECAY_OFFSET (-0.002): 衰减偏移，负值加速衰减
+;     * DECAY_THRESHOLD (-0.5): 低于此值标记为过期
+;     * REVIVE_MULTIPLIER (1.01): 复活增长乘数
+;     * REVIVE_OFFSET (0.002): 复活增长偏移
+;     * REVIVE_MAX (1.0): 重要性上限
+;   
+;   - 向后兼容：
+;     * 旧记忆自动获得默认值：dynamic_importance=0.5, is_expired=false
+;     * 不启用动态重要性时使用原有的标准 prompt
+;     * 所有新功能默认关闭，不影响现有行为
+
+; -------------------------------
+; 6) 修改历史
+; -------------------------------
+; [2026-01-10] 增加在线对话系统（多窗口 + 共享 FAISS 记忆库 + WebUI 展示 prompt 与记忆提取 raw 输出）
 
