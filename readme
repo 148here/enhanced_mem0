@@ -43,8 +43,14 @@ python run_experiments.py --technique_type mem0 --method search --is_graph --out
 python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 24 --max_conversations 2 --sample_rate 5 --debug --num_candidates 3 --max_expand_rounds 2
 python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 24 --max_conversations 2 --sample_rate 1 --debug --num_candidates 3 --max_expand_rounds 2
 
+
+
+python run_experiments.py --technique_type mem0 --method search --is_graph --output_folder results/ --top_k 16 --max_conversations 2 --sample_rate 2 --debug --num_candidates 1 --max_expand_rounds 2
+
 评价
 python evals.py --input_file D:\Learning\PR\code\mem0\evaluation\results\mem0_results_top_24_filter_False_graph_True.json --output_file results/evaluation_metrics.json
+python evals.py --input_file D:\Learning\PR\code\mem0\evaluation\results\mem0_results_top_16_filter_False_graph_True.json --output_file results/evaluation_metrics.json
+python evals.py --input_file D:\Learning\PR\code\mem0\evaluation\results\memos.json --output_file results/evaluation_metrics_memos.json
 
 
 WebUI

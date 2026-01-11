@@ -311,7 +311,6 @@ if __name__ == "__main__":
         traceback.print_exc()
         print("尝试使用 share=True 创建公共链接...")
         try:
-            # 最后的后备方案：使用公共链接
             demo.launch(share=True, inbrowser=False)
         except Exception as e2:
             print(f"使用公共链接也失败: {e2}")
