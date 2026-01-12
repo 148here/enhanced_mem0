@@ -29,7 +29,7 @@ except Exception as e:
 
 def _status_markdown(status: dict[str, Any]) -> str:
     lines = [
-        "### Current Status",
+        "### 当前状态",
         f"- window_id: `{status.get('window_id')}`",
         f"- history_turns: **{status.get('history_turns')}** / max={status.get('max_history_turns')}",
         f"- top_k: **{status.get('top_k')}**",
@@ -37,7 +37,7 @@ def _status_markdown(status: dict[str, Any]) -> str:
         f"- last_add_success: **{status.get('last_add_success')}**",
         f"- chat_latency_s: **{status.get('chat_latency_s')}**",
         "",
-        "### Memory Database Config",
+        "### 记忆库配置",
         f"- provider: `{CFG.MEM0_VECTOR_STORE_PROVIDER}`",
         f"- path: `{CFG.MEMORY_DB_PATH}`",
         f"- collection: `{CFG.COLLECTION_NAME}`",
@@ -63,7 +63,7 @@ def _status_markdown(status: dict[str, Any]) -> str:
     if status.get("judge_enabled"):
         lines.extend([
             "",
-            "### Judge Model + Dynamic TopK Status",
+            "### 裁判模型+动态topk状态",
             f"- num_candidates: **{status.get('num_candidates')}**",
             f"- chosen_pick: **{status.get('chosen_pick')}**",
             f"- chosen_round: **{status.get('chosen_round')}**",
@@ -111,6 +111,8 @@ def on_new_window(current_window_id: str | None):
         "",
         "[]",
         "{}",
+        "",    # importance_raw
+        "[]",  # importance_scored
         "[]",  # candidates
         "",    # judge_raw
     )
@@ -161,6 +163,8 @@ def on_send(window_id: str, user_input: str, chat_messages: list[dict[str, str]]
     facts = mem.get("extracted_facts") or []
     raw = mem.get("raw_response") or ""
     mem0_result = mem.get("mem0_result") or {}
+    importance_raw = mem.get("importance_raw") or ""
+    importance_scored = mem.get("importance_scored") or []
 
     # 裁判模型调试信息（如果启用）
     judge_debug = out.get("judge_debug", {})
@@ -175,6 +179,8 @@ def on_send(window_id: str, user_input: str, chat_messages: list[dict[str, str]]
         raw,
         json.dumps(facts, ensure_ascii=False, indent=2),
         json.dumps(mem0_result, ensure_ascii=False, indent=2),
+        importance_raw,
+        json.dumps(importance_scored, ensure_ascii=False, indent=2),
         candidates_json,  # 候选答案
         judge_raw_text,   # 裁判原始输出
         "",  # clear input
@@ -230,6 +236,8 @@ with gr.Blocks(title="Mem0 在线对话（多窗口 + 共享记忆）") as demo:
         fact_raw_code = gr.Code(label="fact_extraction_raw", value="", language="json")
         facts_code = gr.Code(label="parsed_facts", value="[]", language="json")
         mem0_result_code = gr.Code(label="mem0.add() result", value="{}", language="json")
+        importance_raw_code = gr.Code(label="importance_raw (importance rater raw output)", value="", language="json")
+        importance_scored_code = gr.Code(label="importance_scored (parsed)", value="[]", language="json")
 
     # 裁判模型调试信息
     with gr.Accordion("Judge Model + Dynamic TopK: Debug Info (only available when enabled)", open=False):
@@ -240,19 +248,19 @@ with gr.Blocks(title="Mem0 在线对话（多窗口 + 共享记忆）") as demo:
     new_btn.click(
         fn=on_new_window,
         inputs=[window_dd],
-        outputs=[window_dd, chatbot, status_md, prompt_code, retrieved_json, fact_raw_code, facts_code, mem0_result_code, candidates_code, judge_raw_code],
+        outputs=[window_dd, chatbot, status_md, prompt_code, retrieved_json, fact_raw_code, facts_code, mem0_result_code, importance_raw_code, importance_scored_code, candidates_code, judge_raw_code],
     )
     window_dd.change(fn=on_switch_window, inputs=[window_dd], outputs=[chatbot, status_md])
 
     send_btn.click(
         fn=on_send,
         inputs=[window_dd, user_tb, chatbot, enable_judge_cb, enable_importance_cb, enable_fast_search_cb],
-        outputs=[chatbot, status_md, prompt_code, retrieved_json, fact_raw_code, facts_code, mem0_result_code, candidates_code, judge_raw_code, user_tb],
+        outputs=[chatbot, status_md, prompt_code, retrieved_json, fact_raw_code, facts_code, mem0_result_code, importance_raw_code, importance_scored_code, candidates_code, judge_raw_code, user_tb],
     )
     user_tb.submit(
         fn=on_send,
         inputs=[window_dd, user_tb, chatbot, enable_judge_cb, enable_importance_cb, enable_fast_search_cb],
-        outputs=[chatbot, status_md, prompt_code, retrieved_json, fact_raw_code, facts_code, mem0_result_code, candidates_code, judge_raw_code, user_tb],
+        outputs=[chatbot, status_md, prompt_code, retrieved_json, fact_raw_code, facts_code, mem0_result_code, importance_raw_code, importance_scored_code, candidates_code, judge_raw_code, user_tb],
     )
 
 

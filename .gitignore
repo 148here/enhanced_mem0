@@ -3,3 +3,4 @@ backup/
 mem0/evaluation/results/
 mem0/evaluation/.env
 .env
+paper/

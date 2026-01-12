@@ -326,6 +326,8 @@ class ChatManager:
             "memory_extraction": {
                 "extracted_facts": mem_dbg.extracted_facts or [],
                 "raw_response": mem_dbg.fact_extraction_raw or "",
+                "importance_raw": getattr(mem_dbg, "importance_raw", "") or "",
+                "importance_scored": getattr(mem_dbg, "importance_scored", None) or [],
                 "error": mem_dbg.error,
                 "mem0_result": mem_dbg.mem0_result,
             },
@@ -457,6 +459,8 @@ class ChatManager:
             "memory_extraction": {
                 "extracted_facts": mem_dbg.extracted_facts or [],
                 "raw_response": mem_dbg.fact_extraction_raw or "",
+                "importance_raw": getattr(mem_dbg, "importance_raw", "") or "",
+                "importance_scored": getattr(mem_dbg, "importance_scored", None) or [],
                 "error": mem_dbg.error,
                 "mem0_result": mem_dbg.mem0_result,
             },

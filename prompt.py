@@ -143,9 +143,7 @@ Following is a conversation between the user and the assistant. You have to extr
 """
 
 
-# =========================
 # 裁判模型+动态topk 相关 Prompts（适配单用户在线对话场景）
-# =========================
 
 ANSWER_PROMPT = """
 You are a helpful AI assistant with long-term memory capabilities.
@@ -203,4 +201,13 @@ Candidates:
 {{candidates}}
 
 Pick the best candidate by outputting its number (or 0):
+"""
+
+# 动态重要性评分 Prompt
+IMPORTANCE_RATER_PROMPT = """You are an importance rater.
+Given a list of user-memory facts, rate each fact with an integer importance 0-5.
+Return ONLY JSON: {"facts": [{"content": "...", "importance": 0}]}
+Rules:
+- importance must be integer in [0,5]
+- keep content exactly the same as input
 """
