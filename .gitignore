@@ -4,3 +4,5 @@ mem0/evaluation/results/
 mem0/evaluation/.env
 .env
 paper/
+.gradio/
+__pycache__
