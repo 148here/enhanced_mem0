@@ -1,8 +1,9 @@
-1. 项目介绍请参考论文文件
+1. 项目介绍请参考论文文件。代码基于https://github.com/mem0ai/mem0。
 2. 安装依赖
 2.1 安装依赖包
 (可选)conda create -n enhanced_mem0 python=3.10
 (可选)conda activate enhanced_mem0
+git clone https://github.com/148here/enhanced_mem0.git
 pip install -r requirements.txt
 
 2.2 （可选）启用图数据库服务
